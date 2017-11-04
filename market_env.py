@@ -35,7 +35,8 @@ class MarketEnv(gym.Env):
         self.targetCodes = []
         self.dataMap = {}
 
-        for code in (target_codes + input_codes):
+        for code in target_codes:
+        #for code in (target_codes + input_codes):
             fn = dir_path + "./" + code + ".csv"
 
             data = {}
