@@ -70,9 +70,11 @@ if __name__ == "__main__":
     # モデルファイル名（重みファイルのパス）
     modelFilename = sys.argv[2] if len(sys.argv) > 2 else None
 
+    # 証券コードと名称のマップ
     codeMap = {}
     codeList = codecs.open(codeListFilename, "r", "utf-8")
 
+    # 対象証券コード一覧に記載の証券コードをマップに追加していく
     for line in codeList:
         if line.strip() != "":
             tokens = line.strip().split(",") if not "\t" in line else line.strip().split("\t")
@@ -129,6 +131,7 @@ if __name__ == "__main__":
                     exit()
 
             # apply action, get rewards and new state
+            # input_はenvのstate。
             input_t, reward, game_over, info = env.step(action)
             cumReward += reward
 

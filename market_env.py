@@ -18,7 +18,7 @@ class MarketEnv(gym.Env):
         初期化
         :param dir_path: データのディレクトリへのパス
         :param target_codes: 対象となる銘柄のリスト
-        :param input_codes: (TODO 意味調べる)
+        :param input_codes: 対象外の（学習用？）銘柄リスト
         :param start_date: 開始日
         :param end_date: 終了日
         :param scope: 観測対象とする日数
@@ -33,12 +33,13 @@ class MarketEnv(gym.Env):
 
         self.inputCodes = []
         self.targetCodes = []
+        # 価格情報データマップ。証券コードをキーに価格情報データ（日付をキーに、high, low, close, volumeの変化率のタプルが値）が値
         self.dataMap = {}
 
         for code in target_codes:
-        #for code in (target_codes + input_codes):
+            # for code in (target_codes + input_codes):
             fn = dir_path + "./" + code + ".csv"
-
+            # 価格情報データ。日付をキーに、high, low, close, volumeの変化率のタプルが値
             data = {}
             lastClose = 0
             lastVolume = 0
@@ -49,12 +50,14 @@ class MarketEnv(gym.Env):
                         dt, openPrice, high, low, close, volume = line.strip().split(",")
                         try:
                             if dt >= start_date:
+                                # openは使わず、high, low, close, volumeを取得する
                                 high = float(high) if high != "" else float(close)
                                 low = float(low) if low != "" else float(close)
                                 close = float(close)
                                 volume = int(volume)
 
                                 if lastClose > 0 and close > 0 and lastVolume > 0:
+                                    # 変化率を取得
                                     close_ = (close - lastClose) / lastClose
                                     high_ = (high - close) / close
                                     low_ = (low - close) / close
@@ -83,6 +86,7 @@ class MarketEnv(gym.Env):
         ]
 
         self.action_space = spaces.Discrete(len(self.actions))
+        # 観測値は変化率なので-1から1の間。
         self.observation_space = spaces.Box(np.ones(scope * (len(input_codes) + 1)) * -1,
                                             np.ones(scope * (len(input_codes) + 1)))
 
@@ -96,7 +100,9 @@ class MarketEnv(gym.Env):
         self.reward = 0
         if self.actions[action] == "LONG":
             if sum(self.boughts) < 0:
+                # ショートがあればクローズ
                 for b in self.boughts:
+                    # b < -1なら利益、b > -1なら損失
                     self.reward += -(b + 1)
                 if self.cumulative_reward:
                     self.reward = self.reward / max(1, len(self.boughts))
@@ -110,6 +116,7 @@ class MarketEnv(gym.Env):
         elif self.actions[action] == "SHORT":
             if sum(self.boughts) > 0:
                 for b in self.boughts:
+                    # b > 1なら利益、b < 1なら損失
                     self.reward += b - 1
                 if self.cumulative_reward:
                     self.reward = self.reward / max(1, len(self.boughts))
@@ -123,11 +130,16 @@ class MarketEnv(gym.Env):
         else:
             pass
 
-        vari = self.target[self.targetDates[self.currentTargetIndex]][2]
-        self.cum = self.cum * (1 + vari)
+        # 終値の変化率を取得
+        close_variance = self.target[self.targetDates[self.currentTargetIndex]][2]
+        # 終値の変化率を積立て
+        self.cum = self.cum * (1 + close_variance)
 
         for i in range(len(self.boughts)):
-            self.boughts[i] = self.boughts[i] * MarketEnv.PENALTY * (1 + vari * (-1 if sum(self.boughts) < 0 else 1))
+            # 倍率の基準。boughtsは売りの時マイナスなので-1にする。
+            buy_or_sell = -1 if sum(self.boughts) < 0 else 1
+            # 変化率分だけboughtの値を変化させる。損失が出れば1>boughts>-1になる。
+            self.boughts[i] = self.boughts[i] * MarketEnv.PENALTY * (1 + close_variance * buy_or_sell)
 
         self.defineState()
         self.currentTargetIndex += 1
@@ -178,14 +190,24 @@ class MarketEnv(gym.Env):
         return int(random() * 100)
 
     def defineState(self):
+        """
+        stateを作成する
+        :return:
+        """
         tmpState = []
 
+        # 購買余力。建玉があればその損益によって増減する。
         budget = (sum(self.boughts) / len(self.boughts)) if len(self.boughts) > 0 else 1.
+        # ポジションサイズの対数
         size = math.log(max(1., len(self.boughts)), 100)
+        # ポジション。買いポジなら1。それ以外は0。
         position = 1. if sum(self.boughts) > 0 else 0.
+        # この3つがstate配列の1つ。
         tmpState.append([[budget, size, position]])
 
+        # 対象の終値
         subject = []
+        # 対象の出来高
         subjectVolume = []
         for i in range(self.scope):
             try:
@@ -195,6 +217,6 @@ class MarketEnv(gym.Env):
                 print(self.targetCode, self.currentTargetIndex, i, len(self.targetDates))
                 self.done = True
         tmpState.append([[subject, subjectVolume]])
-
         tmpState = [np.array(i) for i in tmpState]
+        #print(tmpState)
         self.state = tmpState
